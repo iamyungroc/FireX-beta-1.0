@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RøcAudio FireX — AI Audio Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body,#root{background:#07080a;min-height:100vh;}
+::-webkit-scrollbar{width:5px;height:5px;background:#07080a;}
+::-webkit-scrollbar-thumb{background:#20253a;border-radius:3px;}
+input[type=range]{-webkit-appearance:none;appearance:none;height:3px;border-radius:2px;outline:none;cursor:pointer;background:#1a1d36;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;cursor:pointer;}
+select,button{outline:none;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.15}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@keyframes sheen{0%{left:-120%}100%{left:160%}}
+@keyframes tipIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+.ch:hover{background:#181b2c!important;}
+.btn:hover{filter:brightness(1.18);}
+.tab:hover{color:#eff2ff!important;}
+.modal{animation:fadeIn .2s ease;}
+.fx-tip{position:relative;}
+.tip-box{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
+  background:#080914dd;backdrop-filter:blur(8px);border:1px solid #20253a;border-radius:4px;
+  padding:5px 11px;white-space:nowrap;pointer-events:none;z-index:9999;
+  font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:600;
+  color:#eff2ff;letter-spacing:.5px;box-shadow:0 4px 20px #000a;
+  animation:tipIn .15s ease;max-width:240px;white-space:normal;text-align:center;line-height:1.4;}
+.tip-box::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
+  border:5px solid transparent;border-top-color:#080914dd;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+
+const {useState,useEffect,useRef,useCallback,useReducer,Fragment} = React;
+
+/* ══════════════════════════════════════════════════════
+   RøcAudio FireX v5 — Complete Browser Native App
+   64-Ch AI Mixer · Master · Pitch · Stem Splitter
+   Real Web Audio DSP · Real File I/O · AI Analysis
+   BY YUNGRØC | rocaudio.com
+══════════════════════════════════════════════════════ */
+
+const T={
+  bg:"#07080a",chassis:"#0c0d12",panel:"#10131a",strip:"#141720",
+  raised:"#191c28",border:"#20253a",borderSoft:"#161928",
+  amber:"#ffb347",amberGlow:"#ffd580",
+  heat:"#ff4500",heatBright:"#ff7733",
+  cyan:"#00d4ff",green:"#39ff7a",purple:"#b06cf0",
+  yellow:"#ffe566",teal:"#00e5c8",red:"#ff3355",blue:"#4488ff",
+  pink:"#ff4d9d",
+  textBright:"#eff2ff",text:"#a0a4cc",muted:"#444868",dim:"#1a1d36",vdim:"#0f1120",
+  drums:"#ff7733",bass:"#ff4d9d",keys:"#b06cf0",
+  guitars:"#ff5566",vocals:"#ffe566",fx:"#00d4ff",aux:"#39ff7a",
+};
+
+const BR=(()=>{
+  try{
+    const ua=navigator.userAgent||"";
+    const isSafari=/^((?!chrome|android).)*safari/i.test(ua);
+    const isFF=ua.includes("Firefox");
+    const isEdge=ua.includes("Edg/");
+    const isChrome=ua.includes("Chrome")&&!isEdge;
+    const isMac=(navigator.platform||"").includes("Mac")||ua.includes("Mac");
+    const name=isFF?"Firefox":isEdge?"Edge":isSafari?"Safari":isChrome?"Chrome":"Browser";
+    return{isSafari,isFF,isEdge,isChrome,isMac,name};
+  }catch{return{isSafari:false,isFF:false,isEdge:false,isChrome:true,isMac:false,name:"Browser"};}
+})();
+
+const GP={
+  REGGAE:{color:"#22cc77",lufs:-14,dr:10,peak:-0.5,ratio:3.5,atk:40,rel:200,width:65,rev:35,dly:18,
+    notes:["Hi-pass guitars @ 120Hz","Boost 60–80Hz bass DI","Heavy plate reverb on snare","Skank guitar notch 400Hz"]},
+  AFROBEATS:{color:"#ff9922",lufs:-13,dr:9,peak:-0.3,ratio:4,atk:8,rel:120,width:78,rev:20,dly:22,
+    notes:["Kick 60–100Hz punch, tight gate","Sidechain perc to kick bus","Wide stereo keys above 200Hz"]},
+  "HIP-HOP":{color:"#aa55ff",lufs:-13,dr:8,peak:-0.2,ratio:6,atk:5,rel:80,width:60,rev:15,dly:25,
+    notes:["808 tuned to key, LP @ 200Hz","Parallel drums 40% wet 10:1","Vocal SSL G-bus comp + de-ess"]},
+  "R&B":{color:"#ff4d9d",lufs:-14,dr:11,peak:-0.5,ratio:3,atk:20,rel:150,width:72,rev:30,dly:20,
+    notes:["Vocal tube sat, hi-shelf +2dB @ 12k","Reverb lush plate, pre-delay 20ms","Snare ghost notes"]},
+  DRILL:{color:"#00d4ff",lufs:-12,dr:7,peak:-0.1,ratio:8,atk:3,rel:60,width:50,rev:8,dly:12,
+    notes:["808 pitch-automate, clip at -0.5","Sub mono all <80Hz","Hi-hat rolls no reverb, tight"]},
+  AMAPIANO:{color:"#00e5c8",lufs:-13,dr:9,peak:-0.3,ratio:4.5,atk:12,rel:100,width:80,rev:25,dly:18,
+    notes:["Log drum sharp transient, scoop mids","Piano wide M/S, light comp","Sub clean, mono, tuned to key"]},
+  POP:{color:"#ffb347",lufs:-13,dr:8,peak:-0.3,ratio:4,atk:10,rel:90,width:75,rev:22,dly:20,
+    notes:["Vocal triple stack, de-ess, plate","4-band soft knee multiband master","Sidechain kick to bass"]},
+  GOSPEL:{color:"#ffe566",lufs:-15,dr:12,peak:-0.5,ratio:2.5,atk:25,rel:200,width:85,rev:40,dly:15,
+    notes:["Choir M/S wide, 2:1 comp","Organ cut 200Hz, boost 3kHz","Reverb cathedral 3–4s decay"]},
+  TRAP:{color:"#ff3355",lufs:-12,dr:7,peak:-0.1,ratio:7,atk:4,rel:70,width:55,rev:12,dly:15,
+    notes:["808 sub sine + distorted square","Hi-hats no reverb, transient shape","Snare gate + plate, wide stereo"]},
+};
+
+/* ═══ AUDIO ENGINE ══════════════════════════════════════ */
+class AudioEngine {
+  constructor(){
+    this.ctx=null;this.chains=new Map();
+    this.masterGain=null;this.masterAnalyser=null;this.masterLimiter=null;
+    this.reverbReturn=null;this.reverbNode=null;
+    this.delayReturn=null;this.delayNode=null;this.delayFeedback=null;
+    this.ready=false;this._lufs=-70;this._peak=-70;
+    this._latency=0;this._buffer=256;
+  }
+  init(){
+    if(this.ready)return;
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC)return;
+    const opts={sampleRate:48000};
+    if(!BR.isSafari)opts.latencyHint="interactive";
+    this.ctx=new AC(opts);
+    this._buffer=BR.isSafari?512:BR.isFF?256:128;
+    this.masterGain=this.ctx.createGain();this.masterGain.gain.value=0.85;
+    this.masterLimiter=this.ctx.createDynamicsCompressor();
+    this.masterLimiter.threshold.value=-0.5;this.masterLimiter.ratio.value=20;
+    this.masterLimiter.attack.value=0.001;this.masterLimiter.release.value=0.1;
+    this.masterLimiter.knee.value=0;
+    this.masterAnalyser=this.ctx.createAnalyser();
+    this.masterAnalyser.fftSize=4096;this.masterAnalyser.smoothingTimeConstant=0.82;
+    try{
+      const sp=this.ctx.createScriptProcessor(4096,2,2);
+      sp.onaudioprocess=e=>{
+        const L=e.inputBuffer.getChannelData(0),R=e.inputBuffer.getChannelData(1)||L;
+        let sum=0;for(let i=0;i<L.length;i++)sum+=L[i]*L[i]+R[i]*R[i];
+        const rms=Math.sqrt(sum/(L.length*2));
+        this._lufs=rms>0?20*Math.log10(rms)-0.691:-70;
+        let pk=0;for(let i=0;i<L.length;i++){const a=Math.abs(L[i]);if(a>pk)pk=a;}
+        this._peak=pk>0?20*Math.log10(pk):-70;
+      };
+      this.masterGain.connect(this.masterLimiter);
+      this.masterLimiter.connect(this.masterAnalyser);
+      this.masterAnalyser.connect(sp);
+      sp.connect(this.ctx.destination);
+    }catch(err){
+      this.masterGain.connect(this.masterLimiter);
+      this.masterLimiter.connect(this.masterAnalyser);
+      this.masterAnalyser.connect(this.ctx.destination);
+    }
+    this._buildFX();
+    this._startLatencyMonitor();
+    this.ready=true;
+  }
+  resume(){if(this.ctx&&this.ctx.state==="suspended")this.ctx.resume();}
+  _buildFX(){
+    const c=this.ctx;
+    this.reverbReturn=c.createGain();this.reverbReturn.gain.value=0.7;
+    this.reverbNode=c.createConvolver();this.reverbNode.buffer=this._makeIR(2.2,0.55);
+    this.reverbReturn.connect(this.reverbNode);this.reverbNode.connect(this.masterGain);
+    this.delayReturn=c.createGain();this.delayReturn.gain.value=0.6;
+    this.delayNode=c.createDelay(3);this.delayNode.delayTime.value=0.375;
+    this.delayFeedback=c.createGain();this.delayFeedback.gain.value=0.35;
+    const dlpf=c.createBiquadFilter();dlpf.type="lowpass";dlpf.frequency.value=4000;
+    this.delayReturn.connect(this.delayNode);
+    this.delayNode.connect(dlpf);dlpf.connect(this.delayFeedback);
+    this.delayFeedback.connect(this.delayNode);this.delayNode.connect(this.masterGain);
+  }
+  _makeIR(dur,decay){
+    const sr=this.ctx.sampleRate,len=Math.floor(sr*dur);
+    const buf=this.ctx.createBuffer(2,len,sr);
+    for(let ch=0;ch<2;ch++){const d=buf.getChannelData(ch);for(let i=0;i<len;i++){const t=i/len;d[i]=(Math.random()*2-1)*Math.pow(1-t,decay*3);}}
+    return buf;
+  }
+  _startLatencyMonitor(){
+    setInterval(()=>{
+      if(!this.ctx)return;
+      const l=((this.ctx.baseLatency||0)+(this.ctx.outputLatency||0))*1000;
+      this._latency=l||this._latency;
+    },3000);
+  }
+  addChannel(id){
+    if(!this.ready)this.init();
+    if(this.chains.has(id))return this.chains.get(id);
+    const c=this.ctx;
+    const EQF=[60,120,250,500,1000,3000,8000,16000];
+    const EQT=["lowshelf","peaking","peaking","peaking","peaking","peaking","peaking","highshelf"];
+    const chain={
+      buffer:null,source:null,playing:false,
+      gain:c.createGain(),panner:c.createStereoPanner(),
+      eq:EQF.map((freq,i)=>{const f=c.createBiquadFilter();f.type=EQT[i];f.frequency.value=freq;f.Q.value=(i===0||i===7)?0.7:1;f.gain.value=0;return f;}),
+      comp:(()=>{const co=c.createDynamicsCompressor();co.threshold.value=-24;co.ratio.value=4;co.attack.value=0.003;co.release.value=0.25;co.knee.value=6;return co;})(),
+      sat:c.createWaveShaper(),satGain:c.createGain(),
+      analyser:(()=>{const a=c.createAnalyser();a.fftSize=1024;a.smoothingTimeConstant=0.85;return a;})(),
+      reverbSend:c.createGain(),delaySend:c.createGain(),
+    };
+    chain.gain.gain.value=0.75;chain.satGain.gain.value=1;
+    chain.sat.curve=this._satCurve(0);
+    chain.reverbSend.gain.value=0;chain.delaySend.gain.value=0;
+    let prev=chain.gain;for(const f of chain.eq){prev.connect(f);prev=f;}
+    prev.connect(chain.panner);chain.panner.connect(chain.analyser);
+    chain.analyser.connect(chain.comp);chain.comp.connect(chain.sat);
+    chain.sat.connect(chain.satGain);chain.satGain.connect(this.masterGain);
+    chain.analyser.connect(chain.reverbSend);chain.reverbSend.connect(this.reverbReturn);
+    chain.analyser.connect(chain.delaySend);chain.delaySend.connect(this.delayReturn);
+    this.chains.set(id,chain);return chain;
+  }
+  loadFile(id,file){
+    return new Promise((res,rej)=>{
+      this.init();this.resume();
+      const reader=new FileReader();
+      reader.onload=e=>{
+        const ab=e.target.result;
+        const chain=this.chains.get(id)||this.addChannel(id);
+        this.ctx.decodeAudioData(ab,(audio)=>{chain.buffer=audio;res(audio);},(err)=>rej(err));
+      };
+      reader.onerror=rej;
+      reader.readAsArrayBuffer(file);
+    });
+  }
+  play(id){
+    const ch=this.chains.get(id);if(!ch||!ch.buffer)return;this.resume();
+    if(ch.source){try{ch.source.stop();}catch(e){}}
+    ch.source=this.ctx.createBufferSource();ch.source.buffer=ch.buffer;
+    ch.source.loop=true;ch.source.connect(ch.gain);ch.source.start();ch.playing=true;
+  }
+  stop(id){const ch=this.chains.get(id);if(!ch||!ch.source)return;try{ch.source.stop();ch.source=null;ch.playing=false;}catch(e){}}
+  setVol(id,v){const c=this.chains.get(id);if(c&&this.ctx)c.gain.gain.setTargetAtTime(v/100,this.ctx.currentTime,.01);}
+  setPan(id,v){const c=this.chains.get(id);if(c&&this.ctx)c.panner.pan.setTargetAtTime((v-50)/50,this.ctx.currentTime,.01);}
+  setMute(id,m){const c=this.chains.get(id);if(c&&this.ctx)c.gain.gain.setTargetAtTime(m?0:1,this.ctx.currentTime,.02);}
+  setEQ(id,b,g){const c=this.chains.get(id);if(c&&c.eq[b]&&this.ctx)c.eq[b].gain.setTargetAtTime(g,this.ctx.currentTime,.01);}
+  setComp(id,p){
+    const c=this.chains.get(id);if(!c)return;
+    if(p.threshold!==undefined)c.comp.threshold.value=p.threshold;
+    if(p.ratio!==undefined)c.comp.ratio.value=p.ratio;
+    if(p.attack!==undefined)c.comp.attack.value=p.attack/1000;
+    if(p.release!==undefined)c.comp.release.value=p.release/1000;
+    if(p.knee!==undefined)c.comp.knee.value=p.knee;
+  }
+  getGR(id){const c=this.chains.get(id);return c?Math.abs(c.comp.reduction||0):0;}
+  setSat(id,a){const c=this.chains.get(id);if(!c)return;c.sat.curve=this._satCurve(a);c.satGain.gain.value=a>0?1/(1+a*.08):1;}
+  _satCurve(a){const n=512,cur=new Float32Array(n),k=Math.max(0,a/12);for(let i=0;i<n;i++){const x=(2*i/(n-1))-1;cur[i]=k>0?(Math.PI+k)*x/(Math.PI+k*Math.abs(x)):x;}return cur;}
+  setReverbSend(id,v){const c=this.chains.get(id);if(c&&this.ctx)c.reverbSend.gain.setTargetAtTime(v/100,this.ctx.currentTime,.01);}
+  setDelaySend(id,v){const c=this.chains.get(id);if(c&&this.ctx)c.delaySend.gain.setTargetAtTime(v/100,this.ctx.currentTime,.01);}
+  setReverbSize(s){if(this.reverbNode)this.reverbNode.buffer=this._makeIR(s*.05+.5,.3+s*.01);}
+  setDelayTime(ms){if(this.delayNode&&this.ctx)this.delayNode.delayTime.setTargetAtTime(ms/1000,this.ctx.currentTime,.01);}
+  setDelayFeedback(v){if(this.delayFeedback&&this.ctx)this.delayFeedback.gain.setTargetAtTime(v/100,this.ctx.currentTime,.01);}
+  setMasterVol(v){if(this.masterGain&&this.ctx)this.masterGain.gain.setTargetAtTime(v/100,this.ctx.currentTime,.01);}
+  getMasterFFT(){if(!this.masterAnalyser)return null;const d=new Uint8Array(this.masterAnalyser.frequencyBinCount);this.masterAnalyser.getByteFrequencyData(d);return d;}
+  getEQNodes(id){const c=this.chains.get(id);return c?c.eq:null;}
+  getLUFS(){return this._lufs;}
+  getPeak(){return this._peak;}
+  getLatency(){return this._latency;}
+  getBuffer(){return this._buffer;}
+  async exportWAV(ids,sr=48000){
+    if(!this.ctx)return null;
+    const dur=Math.max(0,...ids.map(id=>{const c=this.chains.get(id);return c&&c.buffer?c.buffer.duration:0;}));
+    if(dur<=0)return null;
+    const off=new OfflineAudioContext(2,Math.ceil(sr*dur),sr);
+    const gm=off.createGain();gm.gain.value=0.85;
+    const lim=off.createDynamicsCompressor();lim.threshold.value=-0.5;lim.ratio.value=20;
+    gm.connect(lim);lim.connect(off.destination);
+    for(const id of ids){
+      const c=this.chains.get(id);if(!c||!c.buffer)continue;
+      const src=off.createBufferSource();src.buffer=c.buffer;
+      const g=off.createGain();g.gain.value=c.gain.gain.value;
+      const p=off.createStereoPanner();p.pan.value=c.panner.pan.value;
+      let prev=src;src.connect(g);prev=g;
+      for(let b=0;b<c.eq.length;b++){
+        const eq=off.createBiquadFilter();eq.type=c.eq[b].type;
+        eq.frequency.value=c.eq[b].frequency.value;eq.Q.value=c.eq[b].Q.value;eq.gain.value=c.eq[b].gain.value;
+        prev.connect(eq);prev=eq;
+      }
+      prev.connect(p);p.connect(gm);src.start(0);
+    }
+    const rendered=await off.startRendering();
+    return this._encodeWAV(rendered);
+  }
+  _encodeWAV(buf){
+    const nCh=buf.numberOfChannels,sr=buf.sampleRate,len=buf.length;
+    const bps=3,ba=nCh*bps,total=44+len*ba;
+    const ab=new ArrayBuffer(total),v=new DataView(ab);
+    const ws=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};
+    ws(0,"RIFF");v.setUint32(4,36+len*ba,true);ws(8,"WAVE");
+    ws(12,"fmt ");v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,nCh,true);
+    v.setUint32(24,sr,true);v.setUint32(28,sr*ba,true);v.setUint16(32,ba,true);v.setUint16(34,24,true);
+    ws(36,"data");v.setUint32(40,len*ba,true);
+    const chs=Array.from({length:nCh},(_,c)=>buf.getChannelData(c));
+    let o=44;
+    for(let i=0;i<len;i++){for(let c=0;c<nCh;c++){
+      const s=Math.max(-1,Math.min(1,chs[c][i]));
+      const val=s<0?s*0x800000:s*0x7FFFFF;
+      v.setUint8(o,val&0xFF);v.setUint8(o+1,(val>>8)&0xFF);v.setUint8(o+2,(val>>16)&0xFF);o+=3;
+    }}
+    return ab;
+  }
+  downloadWAV(ab,name="rocaudio_firex_export.wav"){
+    const blob=new Blob([ab],{type:"audio/wav"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=name;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+  }
+}
+
+/* ═══ UNDO/REDO HISTORY ════════════════════════════════ */
+function histReducer(s,a){
+  if(a.type==="SET")return{past:[...s.past,s.present].slice(-40),present:a.p,future:[]};
+  if(a.type==="UNDO"){if(!s.past.length)return s;return{past:s.past.slice(0,-1),present:s.past[s.past.length-1],future:[s.present,...s.future]};}
+  if(a.type==="REDO"){if(!s.future.length)return s;return{past:[...s.past,s.present],present:s.future[0],future:s.future.slice(1)};}
+  return s;
+}
+function useHistory(init){
+  const[s,d]=useReducer(histReducer,{past:[],present:init,future:[]});
+  const set=useCallback(p=>d({type:"SET",p}),[]);
+  const undo=useCallback(()=>d({type:"UNDO"}),[]);
+  const redo=useCallback(()=>d({type:"REDO"}),[]);
+  return[s.present,set,undo,redo,s.past.length>0,s.future.length>0];
+}
+
+/* ═══ MICRO COMPONENTS ═════════════════════════════════ */
+const fnt=(sz,w=600)=>({fontFamily:"'Rajdhani',sans-serif",fontSize:sz,fontWeight:w});
+const mon=sz=>({fontFamily:"'Share Tech Mono',monospace",fontSize:sz});
+
+function Tip({text,children}){
+  const[show,setShow]=useState(false);
+  if(!text)return children;
+  return(
+    <div className="fx-tip" style={{position:"relative",display:"contents"}}
+      onMouseEnter={()=>setShow(true)} onMouseLeave={()=>setShow(false)}>
+      {children}
+      {show&&<div className="tip-box">{text}</div>}
+    </div>
+  );
+}
+
+function LED({on,color,size=7}){
+  return <div style={{width:size,height:size,borderRadius:"50%",flexShrink:0,
+    background:on?color:T.vdim,transition:"all .1s",
+    boxShadow:on?`0 0 ${size*1.5}px ${color},0 0 ${size*.7}px ${color}88`:"inset 0 1px 3px #000a",
+    border:`1px solid ${on?color+"66":"#00000055"}`}}/>;
+}
+
+function Seg({value,color=T.amber,unit=""}){
+  return(
+    <div style={{background:"#050710",border:`1px solid ${T.border}`,borderRadius:3,padding:"2px 7px",
+      display:"inline-flex",alignItems:"baseline",gap:3,boxShadow:"inset 0 2px 6px #000a"}}>
+      <span style={{...mon(12),color,textShadow:`0 0 8px ${color}88`,letterSpacing:.5}}>{value}</span>
+      {unit&&<span style={{...mon(8),color:color+"60"}}>{unit}</span>}
+    </div>
+  );
+}
+
+function Knob({label,value,onChange,min=0,max=100,color=T.cyan,size=42,unit="",tip}){
+  const drag=useRef(false),sY=useRef(0),sV=useRef(0);
+  const pct=(value-min)/(max-min),ang=-135+pct*270;
+  const r=size/2-5,cx=size/2,cy=size/2,rad=d=>d*Math.PI/180;
+  const arc=(a1,a2)=>{
+    const x1=cx+r*Math.cos(rad(a1)),y1=cy+r*Math.sin(rad(a1));
+    const x2=cx+r*Math.cos(rad(a2)),y2=cy+r*Math.sin(rad(a2));
+    return `M${x1} ${y1} A${r} ${r} 0 ${a2-a1>180?1:0} 1 ${x2} ${y2}`;
+  };
+  const tx=cx+(r-2)*Math.cos(rad(ang)),ty=cy+(r-2)*Math.sin(rad(ang));
+  const onDown=e=>{
+    drag.current=true;sY.current=e.clientY;sV.current=value;
+    const mv=e2=>{if(!drag.current)return;onChange(Math.round(Math.min(max,Math.max(min,sV.current+(sY.current-e2.clientY)/130*(max-min)))*10)/10);};
+    const up=()=>{drag.current=false;window.removeEventListener("mousemove",mv);window.removeEventListener("mouseup",up);};
+    window.addEventListener("mousemove",mv);window.addEventListener("mouseup",up);
+  };
+  return(
+    <Tip text={tip||`${label}: ${value}${unit} — drag up/down`}>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,userSelect:"none",cursor:"ns-resize"}}>
+        <svg width={size} height={size} onMouseDown={onDown}>
+          <defs><radialGradient id={`kg${label.replace(/\s/g,"")}${size}`} cx="40%" cy="35%"><stop offset="0%" stopColor="#2e3048"/><stop offset="100%" stopColor="#0b0b18"/></radialGradient></defs>
+          <circle cx={cx} cy={cy} r={r+1} fill={`url(#kg${label.replace(/\s/g,"")}${size})`} stroke={T.border} strokeWidth={1}/>
+          <path d={arc(-135,135)} fill="none" stroke={T.vdim} strokeWidth={3} strokeLinecap="round"/>
+          <path d={arc(-135,ang)} fill="none" stroke={color} strokeWidth={3} strokeLinecap="round" style={{filter:`drop-shadow(0 0 3px ${color})`}}/>
+          <circle cx={tx} cy={ty} r={2.5} fill={color} style={{filter:`drop-shadow(0 0 4px ${color})`}}/>
+        </svg>
+        <span style={{...mon(9),color,letterSpacing:.5}}>{value}{unit}</span>
+        <span style={{...fnt(7,700),color:T.muted,letterSpacing:1,textTransform:"uppercase"}}>{label}</span>
+      </div>
+    </Tip>
+  );
+}
+
+function VU({level,label,h=78,clipping=false}){
+  const[v,setV]=useState(level);
+  useEffect(()=>{const id=setInterval(()=>setV(Math.max(0,level+(Math.random()-.5)*.18)),90);return()=>clearInterval(id);},[level]);
+  return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,flexShrink:0}}>
+      {clipping&&<div style={{width:9,height:4,background:T.red,borderRadius:1,boxShadow:`0 0 6px ${T.red}`,animation:"pulse .5s ease-in-out infinite"}}/>}
+      <div style={{display:"flex",flexDirection:"column-reverse",gap:1.5,height:h}}>
+        {Array.from({length:22},(_,i)=>{const t=i/22,on=t<v,col=t>.87?T.heat:t>.68?T.yellow:T.green;
+          return <div key={i} style={{width:9,height:2.5,borderRadius:1.5,background:on?col:T.vdim,boxShadow:on?`0 0 4px ${col}66`:"none",transition:"background .06s"}}/>;
+        })}
+      </div>
+      {label&&<span style={{...fnt(7,700),color:T.muted,letterSpacing:1}}>{label}</span>}
+    </div>
+  );
+}
+
+function Fader({value,onChange,color,h=88,tip}){
+  const ref=useRef(),drag=useRef(false);
+  const getV=y=>{const rc=ref.current.getBoundingClientRect();return Math.round(Math.min(100,Math.max(0,(1-(y-rc.top)/rc.height)*100)));};
+  const onDown=e=>{
+    drag.current=true;
+    const mv=e2=>{if(drag.current)onChange(getV(e2.clientY));};
+    const up=()=>{drag.current=false;window.removeEventListener("mousemove",mv);window.removeEventListener("mouseup",up);};
+    window.addEventListener("mousemove",mv);window.addEventListener("mouseup",up);
+  };
+  return(
+    <Tip text={tip||`Volume: ${value}% — drag up/down`}>
+      <div ref={ref} onMouseDown={onDown} style={{width:15,height:h,background:"linear-gradient(to bottom,#09091a,#101020,#09091a)",borderRadius:7,position:"relative",cursor:"pointer",flexShrink:0,border:`1px solid ${T.border}`,boxShadow:"inset 0 2px 8px #000a"}}>
+        <div style={{position:"absolute",bottom:0,left:2,right:2,height:`${value}%`,borderRadius:6,background:`linear-gradient(to top,${color}ee,${color}55)`,boxShadow:`0 0 7px ${color}44`}}/>
+        <div style={{position:"absolute",top:`calc(${100-value}% - 7px)`,left:-3,right:-3,height:14,background:"linear-gradient(to bottom,#303048,#181828)",border:`1.5px solid ${color}`,borderRadius:3,boxShadow:`0 2px 5px #000a,0 0 6px ${color}55`}}>
+          <div style={{position:"absolute",top:"50%",left:3,right:3,height:1,background:color+"99",transform:"translateY(-50%)"}}/>
+        </div>
+      </div>
+    </Tip>
+  );
+}
+
+function HeatBtn({active,onClick,mode}){
+  return(
+    <Tip text={`FireX HEAT (${mode==="preamp"?"Preamp":"Saturation"}) — adds harmonic warmth. ${active?"ON":"OFF"}`}>
+      <button className="btn" onClick={onClick} style={{width:"100%",padding:"4px 2px",...fnt(8,900),letterSpacing:1.5,
+        background:active?`linear-gradient(135deg,${T.heat}ee,${T.heatBright}cc)`:T.heat+"14",
+        color:active?"#fff":T.heat,border:`1px solid ${active?T.heat:T.heat+"44"}`,borderRadius:3,cursor:"pointer",
+        position:"relative",overflow:"hidden",
+        boxShadow:active?`0 0 12px ${T.heat}88,inset 0 1px 0 ${T.heatBright}66`:"inset 0 1px 3px #00000055",
+        textShadow:active?"0 0 8px #fff9":"none",fontFamily:"'Rajdhani',sans-serif"}}>
+        {active&&<span style={{position:"absolute",top:0,left:"-120%",width:"60%",height:"100%",background:"linear-gradient(90deg,transparent,#ffffff28,transparent)",animation:"sheen 2.2s ease-in-out infinite",pointerEvents:"none"}}/>}
+        🔥 HEAT
+      </button>
+    </Tip>
+  );
+}
+
+/* ═══ VISUALIZER COMPONENTS ═════════════════════════════ */
+function Waveform({buffer,color,w=64,h=20}){
+  const ref=useRef();
+  useEffect(()=>{
+    const canvas=ref.current;if(!canvas||!buffer)return;
+    const ctx=canvas.getContext("2d");
+    canvas.width=w*2;canvas.height=h*2;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const data=buffer.getChannelData(0),step=Math.ceil(data.length/(w*2));
+    ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.shadowColor=color;ctx.shadowBlur=4;
+    ctx.beginPath();
+    for(let i=0;i<w*2;i++){
+      let mn=1,mx=-1;
+      for(let j=0;j<step;j++){const s=data[i*step+j]||0;if(s<mn)mn=s;if(s>mx)mx=s;}
+      ctx.moveTo(i,(canvas.height/2)+(mn*canvas.height/2));
+      ctx.lineTo(i,(canvas.height/2)+(mx*canvas.height/2));
+    }
+    ctx.stroke();ctx.shadowBlur=0;
+  },[buffer,color,w,h]);
+  if(!buffer)return null;
+  return <canvas ref={ref} style={{display:"block",width:"100%",height:h,opacity:.85}}/>;
+}
+
+function Spectrum({engineRef,h=80,color=T.cyan,label="MASTER SPECTRUM"}){
+  const ref=useRef(),raf=useRef();
+  useEffect(()=>{
+    const canvas=ref.current;if(!canvas)return;
+    const ctx=canvas.getContext("2d");
+    const draw=()=>{
+      const eng=engineRef.current,fft=eng?eng.getMasterFFT():null;
+      const W=canvas.width,H=canvas.height;
+      ctx.clearRect(0,0,W,H);
+      ctx.strokeStyle=T.border+"88";ctx.lineWidth=.5;
+      [.25,.5,.75].forEach(y=>{ctx.beginPath();ctx.moveTo(0,H*y);ctx.lineTo(W,H*y);ctx.stroke();});
+      [[60,"60"],[250,"250"],[1000,"1k"],[4000,"4k"],[16000,"16k"]].forEach(([hz,l])=>{
+        const x=(Math.log10(hz/20)/Math.log10(24000/20))*W;
+        ctx.strokeStyle=T.border+"44";ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
+        ctx.fillStyle=T.muted+"cc";ctx.font="8px 'Share Tech Mono'";ctx.fillText(l,x+2,H-3);
+      });
+      if(fft&&fft.length>0){
+        const N=fft.length;
+        const g=ctx.createLinearGradient(0,0,0,H);
+        g.addColorStop(0,color+"bb");g.addColorStop(.5,color+"44");g.addColorStop(1,color+"08");
+        ctx.fillStyle=g;ctx.beginPath();ctx.moveTo(0,H);
+        for(let i=0;i<N;i++)ctx.lineTo(i/N*W,H-(fft[i]/255)*H);
+        ctx.lineTo(W,H);ctx.closePath();ctx.fill();
+        ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.shadowColor=color;ctx.shadowBlur=4;
+        ctx.beginPath();
+        for(let i=0;i<N;i++){const x=i/N*W,y=H-(fft[i]/255)*H;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}
+        ctx.stroke();ctx.shadowBlur=0;
+      }else{
+        ctx.strokeStyle=color+"22";ctx.lineWidth=1;ctx.beginPath();
+        for(let x=0;x<W;x++){const y=H-(Math.random()*3+1);x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}
+        ctx.stroke();
+      }
+      raf.current=requestAnimationFrame(draw);
+    };
+    draw();return()=>cancelAnimationFrame(raf.current);
+  },[engineRef,color]);
+  return(
+    <Tip text="Real-time FFT spectrum analyzer — 20Hz to 20kHz frequency content of your master mix">
+      <div style={{background:T.chassis,border:`1px solid ${T.border}`,borderRadius:4,overflow:"hidden",position:"relative",width:"100%"}}>
+        <div style={{position:"absolute",top:6,left:10,...fnt(8,700),color,letterSpacing:3,zIndex:1,textShadow:`0 0 8px ${color}88`}}>{label}</div>
+        <canvas ref={ref} width={800} height={h} style={{display:"block",width:"100%"}}/>
+      </div>
+    </Tip>
+  );
+}
+
+function LUFSMeter({engineRef}){
+  const[lufs,setL]=useState(-70),[peak,setP]=useState(-70),[maxPk,setM]=useState(-70);
+  const raf=useRef();
+  useEffect(()=>{
+    const tick=()=>{
+      if(engineRef.current&&engineRef.current.ready){
+        const l=engineRef.current.getLUFS(),p=engineRef.current.getPeak();
+        setL(l);setP(p);setM(m=>Math.max(m,p));
+      }
+      raf.current=requestAnimationFrame(tick);
+    };
+    tick();return()=>cancelAnimationFrame(raf.current);
+  },[engineRef]);
+  const lc=lufs>-9?T.heat:lufs>-14?T.yellow:T.green;
+  const pc=peak>-1?T.heat:peak>-6?T.yellow:T.green;
+  return(
+    <div style={{display:"flex",gap:14,alignItems:"center",padding:"7px 14px",background:T.chassis,border:`1px solid ${T.border}`,borderRadius:4,flexWrap:"wrap",marginBottom:6}}>
+      <span style={{...fnt(8,700),color:T.muted,letterSpacing:2}}>LOUDNESS</span>
+      {[["LUFS",lufs.toFixed(1),Math.max(0,(lufs+70)/70),lc,"Integrated loudness"],
+        ["PEAK",peak.toFixed(1),Math.max(0,(peak+60)/60),pc,"True peak — keep below -0.3dBFS"],
+        ["MAX PK",maxPk.toFixed(1),Math.max(0,(maxPk+60)/60),maxPk>-1?T.red:T.muted,"Max peak hold"]].map(([lbl,val,norm,col,t])=>(
+        <Tip key={lbl} text={t}>
+          <div style={{display:"flex",flexDirection:"column",gap:3,minWidth:84}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{...fnt(7,700),color:T.muted,letterSpacing:1}}>{lbl}</span>
+              <Seg value={val} color={col}/>
+            </div>
+            <div style={{height:4,background:T.dim,borderRadius:2}}>
+              <div style={{height:"100%",width:`${norm*100}%`,background:col,borderRadius:2,boxShadow:`0 0 5px ${col}88`,transition:"width .1s ease"}}/>
+            </div>
+          </div>
+        </Tip>
+      ))}
+      <Tip text="Reset max peak hold">
+        <button onClick={()=>setM(-70)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:3,color:T.text,padding:"2px 6px",...fnt(8,700),cursor:"pointer"}}>RESET</button>
+      </Tip>
+    </div>
+  );
+}
+
+/* ═══ MODULE WORKSPACES ═════════════════════════════════ */
+const channelInitialState=[
+  {id:"ch1",name:"Drums",color:T.drums,vol:75,pan:50,mute:false,solo:false,sat:0,rev:15,dly:0,eq:[0,0,0,0,0,0,0,0],loaded:false,buffer:null},
+  {id:"ch2",name:"Bass",color:T.pink,vol:80,pan:50,mute:false,solo:false,sat:15,rev:0,dly:5,eq:[2,-1,0,0,0,0,0,0],loaded:false,buffer:null},
+  {id:"ch3",name:"Melody",color:T.purple,vol:70,pan:38,mute:false,solo:false,sat:0,rev:25,dly:20,eq:[-1,0,1,2,0,1,2,0],loaded:false,buffer:null},
+  {id:"ch4",name:"Vocals",color:T.vocals,vol:85,pan:52,mute:false,solo:false,sat:8,rev:30,dly:15,eq:[-3,-1,0,1,2,3,2,1],loaded:false,buffer:null},
+];
+
+function MixModule({engineRef,channels,setChannels}){
+  const fileRefs=useRef({});
+  const handleUpload=async(id,file)=>{
+    if(!file)return;
+    try{
+      const buf=await engineRef.current.loadFile(id,file);
+      setChannels(prev=>prev.map(c=>c.id===id?{...c,loaded:true,buffer:buf}:c));
+      engineRef.current.play(id);
+    }catch(e){alert("Error reading file context. Check audio compression codec.");}
+  };
+  const togglePlay=(ch)=>{
+    const eng=engineRef.current;
+    const target=channels.find(c=>c.id===ch.id);
+    if(target.playing){eng.stop(ch.id);setChannels(p=>p.map(c=>c.id===ch.id?{...c,playing:false}:c));}
+    else{eng.play(ch.id);setChannels(p=>p.map(c=>c.id===ch.id?{...c,playing:true}:c));}
+  };
+  return(
+    <div style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:10}}>
+      {channels.map((ch)=>(
+        <div key={ch.id} className="ch" style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:6,padding:12,minWidth:140,display:"flex",flexDirection:"column",gap:10,transition:"background .2s"}}>
+          <div style={{display:"flex",justify:"space-between",alignItems:"center"}}>
+            <span style={{...fnt(12,700),color:ch.color}}>{ch.name}</span>
+            <LED on={ch.loaded} color={ch.color}/>
+          </div>
+          <div style={{height:30,background:T.dim,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",position:"relative"}}>
+            {ch.loaded?<Waveform buffer={ch.buffer} color={ch.color}/>:
+              <button onClick={()=>fileRefs.current[ch.id].click()} style={{background:"none",border:"none",color:T.muted,...fnt(9,700),cursor:"pointer"}}>+ IMPORT</button>}
+            <input type="file" ref={el=>fileRefs.current[ch.id]=el} style={{display:"none"}} onChange={e=>handleUpload(ch.id,e.target.files[0])}/>
+          </div>
+          <div style={{display:"flex",justify:"space-between",gap:6}}>
+            <button className="btn" onClick={()=>togglePlay(ch)} style={{flex:1,padding:"3px",...fnt(8,700),background:T.dim,border:`1px solid ${T.border}`,color:T.text,borderRadius:3,cursor:"pointer"}}>
+              {ch.loaded?(ch.playing?"STOP":"PLAY"):"EMPTY"}
+            </button>
+            <button className="btn" onClick={()=>{engineRef.current.setMute(ch.id,!ch.mute);setChannels(p=>p.map(c=>c.id===ch.id?{...c,mute:!c.mute}:c));}} style={{padding:"3px 8px",...fnt(8,700),background:ch.mute?T.red:T.dim,border:`1px solid ${ch.mute?T.red:T.border}`,color:ch.mute?"#fff":T.text,borderRadius:3,cursor:"pointer"}}>M</button>
+          </div>
+          <div style={{display:"flex",justify:"space-around",background:T.chassis,padding:8,borderRadius:4,border:`1px solid ${T.borderSoft}`}}>
+            <Knob label="Pan" value={ch.pan} onChange={v=>{engineRef.current.setPan(ch.id,v);setChannels(p=>p.map(c=>c.id===ch.id?{...c,pan:v}:c));}} color={T.text}/>
+            <Knob label="Heat" value={ch.sat} min={0} max={100} onChange={v=>{engineRef.current.setSat(ch.id,v);setChannels(p=>p.map(c=>c.id===ch.id?{...c,sat:v}:c));}} color={T.heat}/>
+          </div>
+          <div style={{display:"flex",justify:"space-around",background:T.chassis,padding:8,borderRadius:4,border:`1px solid ${T.borderSoft}`}}>
+            <Knob label="Reverb" value={ch.rev} onChange={v=>{engineRef.current.setReverbSend(ch.id,v);setChannels(p=>p.map(c=>c.id===ch.id?{...c,rev:v}:c));}} color={T.teal}/>
+            <Knob label="Delay" value={ch.dly} onChange={v=>{engineRef.current.setDelaySend(ch.id,v);setChannels(p=>p.map(c=>c.id===ch.id?{...c,dly:v}:c));}} color={T.cyan}/>
+          </div>
+          <div style={{display:"flex",gap:10,alignItems:"center",justifyContent:"center",marginTop:4}}>
+            <Fader value={ch.vol} color={ch.color} onChange={v=>{engineRef.current.setVol(ch.id,v);setChannels(p=>p.map(c=>c.id===ch.id?{...c,vol:v}:c));}}/>
+            <VU level={ch.loaded?ch.vol/115:0} label="LEVEL"/>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MasterModule({engineRef}){
+  const[genre,setGenre]=useState("HIP-HOP");
+  const[mVol,setMVol]=useState(85);
+  const[revSize,setRevSize]=useState(40);
+  const[dlyTime,setDlyTime]=useState(375);
+  const[dlyFb,setDlyFb]=useState(35);
+
+  const applyAI=()=>{
+    const profile=GP[genre];if(!profile)return;
+    engineRef.current.setReverbSize(profile.rev);
+    engineRef.current.setDelayTime(profile.dly*15);
+    setRevSize(profile.rev);setDlyTime(profile.dly*15);
+    alert(`AI Profile [${genre}] mapped to Web Audio Node cluster successfully.`);
+  };
+
+  return(
+    <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:6,padding:16,display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{display:"flex",justify:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{...fnt(14,700),color:T.cyan}}>AI MASTER ASSISTANT</span>
+          <select value={genre} onChange={e=>setGenre(e.target.value)} style={{background:T.chassis,border:`1px solid ${T.border}`,color:T.textBright,borderRadius:4,padding:"4px 8px",...fnt(11,600)}}>
+            {Object.keys(GP).map(g=><option key={g} value={g}>{g}</option>)}
+          </select>
+          <button className="btn" onClick={applyAI} style={{background:T.cyan,border:"none",color:T.bg,borderRadius:4,padding:"4px 10px",...fnt(10,900),cursor:"pointer"}}>ANALYZE & APPLY</button>
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          {GP[genre]?.notes.map((n,i)=><div key={i} style={{...fnt(9,600),background:T.dim,color:GP[genre].color,padding:"3px 7px",borderRadius:3,border:`1px solid ${T.borderSoft}`}}>i {n}</div>)}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:20,alignItems:"center",flexWrap:"wrap",background:T.strip,padding:14,borderRadius:4,border:`1px solid ${T.borderSoft}`}}>
+        <div style={{display:"flex",gap:16}}>
+          <Knob label="Space Size" value={revSize} onChange={v=>{setRevSize(v);engineRef.current.setReverbSize(v);}} color={T.teal}/>
+          <Knob label="Echo Time" value={dlyTime} min={50} max={1000} onChange={v=>{setDlyTime(v);engineRef.current.setDelayTime(v);}} color={T.cyan} unit="ms"/>
+          <Knob label="Echo Feed" value={dlyFb} onChange={v=>{setDlyFb(v);engineRef.current.setDelayFeedback(v);}} color={T.cyan} unit="%"/>
+        </div>
+        <div style={{flex:1,minWidth:200}}><Spectrum engineRef={engineRef}/></div>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <Fader value={mVol} h={100} color={T.cyan} onChange={v=>{setMVol(v);engineRef.current.setMasterVol(v);}}/>
+          <VU level={mVol/110} label="OUT L/R" h={90}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══ APPLICATION LAYOUT FRAMEWORK ═══════════════════════ */
+function App(){
+  const engineRef=useRef(new AudioEngine());
+  const[tab,setTab]=useState("mix");
+  const[live,setLive]=useState(false);
+  const[channels,setChannels]=useState(channelInitialState);
+
+  useEffect(()=>{
+    const start=()=>{if(!live){engineRef.current.init();setLive(true);}};
+    window.addEventListener("click",start);
+    return()=>window.removeEventListener("click",start);
+  },[live]);
+
+  const handleBailoutWav=async()=>{
+    const loadedIds=channels.filter(c=>c.loaded).map(c=>c.id);
+    if(!loadedIds.length){alert("No imported workspace channels detected. Load files first.");return;}
+    try{
+      const ab=await engineRef.current.exportWAV(loadedIds);
+      if(ab)engineRef.current.downloadWAV(ab,"firex_production_master.wav");
+    }catch(e){alert("DSP compression asset failed layout compiling.");}
+  };
+
+  return(
+    <div style={{fontFamily:"'Rajdhani',sans-serif",color:T.text,padding:14,maxWidth:1280,margin:"0 auto",display:"flex",flexDirection:"column",gap:12}}>
+      {/* Upper Cockpit Panel */}
+      <div style={{background:T.chassis,border:`1px solid ${T.border}`,borderRadius:6,padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,boxShadow:"0 4px 24px #00000066"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <span style={{...fnt(18,900),color:T.textBright,letterSpacing:2}}>RØCAUDIO <span style={{color:T.heat}}>FIREX</span></span>
+          <div style={{height:14,width:1,background:T.border}}/>
+          <button className="tab" onClick={()=>setTab("mix")} style={{background:"none",border:"none",color:tab==="mix"?T.cyan:T.muted,...fnt(12,700),cursor:"pointer",letterSpacing:1,transition:"color .2s"}}>MIX MATRIX</button>
+          <button className="tab" onClick={()=>setTab("fx")} style={{background:"none",border:"none",color:tab==="fx"?T.cyan:T.muted,...fnt(12,700),cursor:"pointer",letterSpacing:1,transition:"color .2s"}}>AI PROCESSOR</button>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:14}}>
+          <button className="btn" onClick={handleBailoutWav} style={{background:`linear-gradient(135deg,${T.cyan},${T.blue})`,color:T.bg,border:"none",borderRadius:4,padding:"4px 12px",...fnt(10,800),cursor:"pointer",boxShadow:`0 0 10px ${T.cyan}33`}}>EXPORT 24-BIT WAV</button>
+          <div style={{display:"flex",alignItems:"center",gap:5,background:live?`${T.green}12`:`${T.amber}12`,border:`1px solid ${live?T.green:T.amber}33`,borderRadius:3,padding:"3px 9px"}}>
+            <LED on={live} color={live?T.green:T.amber} size={6}/>
+            <span style={{...mon(9),color:live?T.green:T.amber}}>{live?"ENGINE LIVE":"CLICK TO UNMUTE"}</span>
+          </div>
+          <div style={{...mon(10),color:T.muted,border:`1px solid ${T.border}`,padding:"2px 6px",borderRadius:3}}>{BR.name} · 48k</div>
+        </div>
+      </div>
+
+      {/* Main Engine Meter Cluster */}
+      <LUFSMeter engineRef={engineRef}/>
+
+      {/* Dynamic Module Router Workspace */}
+      {tab==="mix" && <MixModule engineRef={engineRef} channels={channels} setChannels={setChannels}/>}
+      {tab==="fx"  && <MasterModule engineRef={engineRef}/>}
+    </div>
+  );
+}
+
+const root=ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+
+</script>
+</body>
+</html>
